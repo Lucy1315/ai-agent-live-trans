@@ -1,0 +1,31 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  font-family: "Pretendard", -apple-system, sans-serif;
+}
+
+.subtitle-container {
+  background: rgba(0, 0, 0, 0.75);
+  color: #ffffff;
+  font-size: 18px;
+  line-height: 1.6;
+  padding: 12px 24px;
+  border-radius: 8px;
+}
+
+.subtitle-fade-enter {
+  animation: fadeSwap 0.3s ease-in-out;
+}
+
+@keyframes fadeSwap {
+  0% { opacity: 0.5; transform: translateY(2px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+
+.term-highlight {
+  color: #ffd700;
+  font-weight: 600;
+  cursor: pointer;
+}
