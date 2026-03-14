@@ -2,35 +2,34 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 
-interface SSEOptions {
-  domain: string;
-  targetLang: string;
-  gptModel: string;
-  whisperModel: string;
+interface Subtitle {
+  start: number;
+  end: number;
+  text: string;
 }
 
 interface SSEState {
-  enText: string;
-  koText: string;
-  chunkId: number;
-  insights: string[];
-  transcript: Array<{ chunkId: number; en: string; ko: string }>;
+  subtitles: Subtitle[];
+  chunkSummaries: { index: number; summary: string }[];
+  finalSummary: string;
+  insights: string;
+  progress: number;
+  phase: string;
   isConnected: boolean;
-  hasFirstSubtitle: boolean;
+  isComplete: boolean;
   error: string | null;
 }
 
-export type { SSEOptions };
-
-export function useSSE(url: string | null, options: SSEOptions) {
+export function useSSE(url: string | null) {
   const [state, setState] = useState<SSEState>({
-    enText: "",
-    koText: "",
-    chunkId: 0,
-    insights: [],
-    transcript: [],
+    subtitles: [],
+    chunkSummaries: [],
+    finalSummary: "",
+    insights: "",
+    progress: 0,
+    phase: "",
     isConnected: false,
-    hasFirstSubtitle: false,
+    isComplete: false,
     error: null,
   });
 
@@ -52,7 +51,7 @@ export function useSSE(url: string | null, options: SSEOptions) {
 
     const backendUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
     const source = new EventSource(
-      `${backendUrl}/api/stream?url=${encodeURIComponent(url)}&domain=${encodeURIComponent(options.domain)}&target_lang=${encodeURIComponent(options.targetLang)}&gpt_model=${encodeURIComponent(options.gptModel)}&whisper_model=${encodeURIComponent(options.whisperModel)}`
+      `${backendUrl}/api/stream?url=${encodeURIComponent(url)}`
     );
     sourceRef.current = source;
 
@@ -60,24 +59,41 @@ export function useSSE(url: string | null, options: SSEOptions) {
       setState((prev) => ({ ...prev, isConnected: true, error: null }));
     };
 
-    source.addEventListener("subtitle", (e) => {
+    source.addEventListener("subtitles", (e) => {
+      const data = JSON.parse(e.data);
+      setState((prev) => ({ ...prev, subtitles: data.subtitles }));
+    });
+
+    source.addEventListener("progress", (e) => {
       const data = JSON.parse(e.data);
       setState((prev) => ({
         ...prev,
-        enText: data.en,
-        koText: data.ko,
-        chunkId: data.chunk_id,
-        hasFirstSubtitle: true,
-        transcript: [...prev.transcript, { chunkId: data.chunk_id, en: data.en, ko: data.ko }],
+        progress: data.progress,
+        phase: data.phase,
       }));
     });
 
-    source.addEventListener("summary", (e) => {
+    source.addEventListener("chunk_summary", (e) => {
       const data = JSON.parse(e.data);
       setState((prev) => ({
         ...prev,
-        insights: [...prev.insights, data.point],
+        chunkSummaries: [...prev.chunkSummaries, data],
       }));
+    });
+
+    source.addEventListener("final_summary", (e) => {
+      const data = JSON.parse(e.data);
+      setState((prev) => ({ ...prev, finalSummary: data.summary }));
+    });
+
+    source.addEventListener("insights", (e) => {
+      const data = JSON.parse(e.data);
+      setState((prev) => ({ ...prev, insights: data.insights }));
+    });
+
+    source.addEventListener("complete", () => {
+      setState((prev) => ({ ...prev, isComplete: true, isConnected: false }));
+      source.close();
     });
 
     source.addEventListener("error", (e) => {
@@ -94,7 +110,7 @@ export function useSSE(url: string | null, options: SSEOptions) {
     return () => {
       source.close();
     };
-  }, [url, options.domain, options.targetLang, options.gptModel, options.whisperModel, disconnect]);
+  }, [url, disconnect]);
 
   return { ...state, disconnect };
 }
