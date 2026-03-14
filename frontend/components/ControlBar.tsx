@@ -5,6 +5,7 @@ interface Props {
   onStop: () => void;
   glossary: Record<string, string>;
   insights: string[];
+  transcript: Array<{ chunkId: number; en: string; ko: string }>;
 }
 
 export default function ControlBar({
@@ -12,6 +13,7 @@ export default function ControlBar({
   onStop,
   glossary,
   insights,
+  transcript,
 }: Props) {
   const handleExport = () => {
     const data = {
@@ -26,6 +28,28 @@ export default function ControlBar({
     const a = document.createElement("a");
     a.href = url;
     a.download = `live-trans-export-${Date.now()}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleExportMarkdown = () => {
+    const now = new Date().toISOString().split("T")[0];
+    let md = `# 회의록 - ${now}\n\n`;
+    md += `## 전체 자막\n\n`;
+    md += `| # | English | 번역 |\n|---|---------|------|\n`;
+    for (const t of transcript) {
+      md += `| ${t.chunkId} | ${t.en} | ${t.ko} |\n`;
+    }
+    md += `\n## 핵심 요약\n\n`;
+    insights.forEach((point, i) => {
+      md += `${i + 1}. ${point}\n`;
+    });
+
+    const blob = new Blob([md], { type: "text/markdown" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `meeting-notes-${Date.now()}.md`;
     a.click();
     URL.revokeObjectURL(url);
   };
@@ -49,6 +73,12 @@ export default function ControlBar({
             정지
           </button>
         )}
+        <button
+          onClick={handleExportMarkdown}
+          className="px-4 py-1.5 bg-gray-600 rounded text-sm hover:bg-gray-500"
+        >
+          회의록 (MD)
+        </button>
         <button
           onClick={handleExport}
           className="px-4 py-1.5 bg-gray-600 rounded text-sm hover:bg-gray-500"
