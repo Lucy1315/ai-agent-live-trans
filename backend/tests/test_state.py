@@ -1,27 +1,29 @@
-from engine.state import WebinarState, UIAction
+# tests/test_state.py
+from engine.state import SubtitleAnalysisState, UIAction
 
-def test_webinar_state_has_required_fields():
-    state: WebinarState = {
-        "audio_source_url": "https://youtube.com/watch?v=test",
-        "audio_chunk": b"",
-        "current_chunk_text": "",
-        "is_sentence_end": False,
-        "sentence_buffer": "",
-        "chunk_id": 0,
-        "fast_translation": "",
-        "refined_translation": "",
-        "refined_sentences": [],
-        "new_terms_found": False,
-        "full_transcript": [],
-        "glossary_dict": {},
-        "summary_points": [],
+
+def test_subtitle_analysis_state_has_required_fields():
+    state: SubtitleAnalysisState = {
+        "url": "https://youtube.com/watch?v=test",
+        "is_live": False,
+        "raw_subtitles": [],
+        "chunks": [],
+        "chunk_summaries": [],
+        "final_summary": "",
+        "insights": "",
+        "progress": 0.0,
         "ui_events": [],
     }
-    assert state["audio_source_url"] == "https://youtube.com/watch?v=test"
-    assert state["chunk_id"] == 0
+    assert state["url"] == "https://youtube.com/watch?v=test"
+    assert state["is_live"] is False
+    assert state["progress"] == 0.0
+
 
 def test_ui_action_enum():
-    assert UIAction.UPDATE_FAST_SUBTITLE == "fast_subtitle"
-    assert UIAction.UPDATE_REFINED_SUBTITLE == "refined_subtitle"
-    assert UIAction.UPDATE_GLOSSARY == "glossary"
-    assert UIAction.UPDATE_SUMMARY == "summary"
+    assert UIAction.SUBTITLES == "subtitles"
+    assert UIAction.PROGRESS == "progress"
+    assert UIAction.CHUNK_SUMMARY == "chunk_summary"
+    assert UIAction.FINAL_SUMMARY == "final_summary"
+    assert UIAction.INSIGHTS == "insights"
+    assert UIAction.ERROR == "error"
+    assert UIAction.COMPLETE == "complete"

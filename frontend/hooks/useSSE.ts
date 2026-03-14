@@ -1,26 +1,35 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import type { SubtitleEvent, GlossaryEvent, SummaryEvent } from "@/lib/types";
+
+interface Subtitle {
+  start: number;
+  end: number;
+  text: string;
+}
 
 interface SSEState {
-  subtitle: string;
-  isRefined: boolean;
-  chunkId: number;
-  glossary: Record<string, string>;
-  insights: string[];
+  subtitles: Subtitle[];
+  chunkSummaries: { index: number; summary: string }[];
+  finalSummary: string;
+  insights: string;
+  progress: number;
+  phase: string;
   isConnected: boolean;
+  isComplete: boolean;
   error: string | null;
 }
 
 export function useSSE(url: string | null) {
   const [state, setState] = useState<SSEState>({
-    subtitle: "",
-    isRefined: false,
-    chunkId: 0,
-    glossary: {},
-    insights: [],
+    subtitles: [],
+    chunkSummaries: [],
+    finalSummary: "",
+    insights: "",
+    progress: 0,
+    phase: "",
     isConnected: false,
+    isComplete: false,
     error: null,
   });
 
@@ -40,8 +49,9 @@ export function useSSE(url: string | null) {
       return;
     }
 
+    const backendUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
     const source = new EventSource(
-      `/api/stream?url=${encodeURIComponent(url)}`
+      `${backendUrl}/api/stream?url=${encodeURIComponent(url)}`
     );
     sourceRef.current = source;
 
@@ -49,40 +59,41 @@ export function useSSE(url: string | null) {
       setState((prev) => ({ ...prev, isConnected: true, error: null }));
     };
 
-    source.addEventListener("fast_subtitle", (e) => {
-      const data: SubtitleEvent = JSON.parse(e.data);
+    source.addEventListener("subtitles", (e) => {
+      const data = JSON.parse(e.data);
+      setState((prev) => ({ ...prev, subtitles: data.subtitles }));
+    });
+
+    source.addEventListener("progress", (e) => {
+      const data = JSON.parse(e.data);
       setState((prev) => ({
         ...prev,
-        subtitle: data.text,
-        isRefined: false,
-        chunkId: data.chunk_id,
+        progress: data.progress,
+        phase: data.phase,
       }));
     });
 
-    source.addEventListener("refined_subtitle", (e) => {
-      const data: SubtitleEvent = JSON.parse(e.data);
+    source.addEventListener("chunk_summary", (e) => {
+      const data = JSON.parse(e.data);
       setState((prev) => ({
         ...prev,
-        subtitle: data.text,
-        isRefined: true,
-        chunkId: data.chunk_id,
+        chunkSummaries: [...prev.chunkSummaries, data],
       }));
     });
 
-    source.addEventListener("glossary", (e) => {
-      const data: GlossaryEvent = JSON.parse(e.data);
-      setState((prev) => ({
-        ...prev,
-        glossary: { ...prev.glossary, ...data },
-      }));
+    source.addEventListener("final_summary", (e) => {
+      const data = JSON.parse(e.data);
+      setState((prev) => ({ ...prev, finalSummary: data.summary }));
     });
 
-    source.addEventListener("summary", (e) => {
-      const data: SummaryEvent = JSON.parse(e.data);
-      setState((prev) => ({
-        ...prev,
-        insights: [...prev.insights, data.point],
-      }));
+    source.addEventListener("insights", (e) => {
+      const data = JSON.parse(e.data);
+      setState((prev) => ({ ...prev, insights: data.insights }));
+    });
+
+    source.addEventListener("complete", () => {
+      setState((prev) => ({ ...prev, isComplete: true, isConnected: false }));
+      source.close();
     });
 
     source.addEventListener("error", (e) => {

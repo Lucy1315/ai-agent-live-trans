@@ -2,34 +2,37 @@
 import asyncio
 import json
 import logging
-import time
 import os
+import time
 from pathlib import Path
+from dotenv import load_dotenv
+
+load_dotenv()
 
 from fastapi import FastAPI, Query
 from fastapi.middleware.cors import CORSMiddleware
 from sse_starlette.sse import EventSourceResponse
 
 from engine.graph import build_graph
-from engine.state import WebinarState
-from sources.youtube import YouTubeSource
+from engine.state import SubtitleAnalysisState
 
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Live-Trans API")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=["*"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 _active_sessions: dict[str, bool] = {}
+_session_states: dict[str, dict] = {}
+_summarize_now_flags: dict[str, bool] = {}
 
 graph = build_graph()
-
-CHUNK_INTERVAL = 2.0
 
 
 @app.get("/health")
@@ -38,112 +41,129 @@ async def health():
 
 
 @app.get("/api/stream")
-async def stream(url: str = Query(..., description="Audio source URL")):
+async def stream(url: str = Query(..., description="YouTube URL")):
     session_id = url
 
     async def event_generator():
         _active_sessions[session_id] = True
-        source = YouTubeSource()
-        chunk_id = 0
 
-        state: WebinarState = {
-            "audio_source_url": url,
-            "audio_chunk": b"",
-            "current_chunk_text": "",
-            "is_sentence_end": False,
-            "sentence_buffer": "",
-            "chunk_id": 0,
-            "fast_translation": "",
-            "refined_translation": "",
-            "refined_sentences": [],
-            "new_terms_found": False,
-            "full_transcript": [],
-            "glossary_dict": {},
-            "summary_points": [],
+        state: SubtitleAnalysisState = {
+            "url": url,
+            "is_live": False,
+            "raw_subtitles": [],
+            "chunks": [],
+            "chunk_summaries": [],
+            "final_summary": "",
+            "insights": "",
+            "progress": 0.0,
             "ui_events": [],
         }
+        _session_states[session_id] = state
 
         try:
-            from faster_whisper import WhisperModel
-            import numpy as np
-            model_name = os.getenv("WHISPER_MODEL", "base")
-            whisper = WhisperModel(model_name, device="cpu", compute_type="int8")
+            # 전체 파이프라인 실행 (blocking → thread)
+            result = await asyncio.to_thread(graph.invoke, state)
 
-            async for audio_chunk in source.stream_chunks(url):
-                if not _active_sessions.get(session_id):
-                    break
+            # state 업데이트
+            for key in result:
+                if key in state:
+                    state[key] = result[key]
 
-                start_time = time.monotonic()
-
-                audio_np = np.frombuffer(audio_chunk, dtype=np.int16).astype(np.float32) / 32768.0
-                segments, info = whisper.transcribe(audio_np, language="en")
-                segments_list = list(segments)
-
-                text = " ".join(
-                    s.text for s in segments_list
-                    if s.avg_logprob > -1.0
-                ).strip()
-
-                elapsed = time.monotonic() - start_time
-                if elapsed > CHUNK_INTERVAL:
-                    logger.warning(f"STT took {elapsed:.1f}s > {CHUNK_INTERVAL}s, dropping chunk")
-                    continue
-
-                if not text:
-                    continue
-
-                chunk_id += 1
-                state["current_chunk_text"] = text
-                state["audio_chunk"] = audio_chunk
-                state["chunk_id"] = chunk_id
-                state["ui_events"] = []
-
-                result = await asyncio.to_thread(graph.invoke, state)
-
-                for key in ["sentence_buffer", "is_sentence_end", "full_transcript",
-                            "refined_sentences", "glossary_dict", "summary_points",
-                            "new_terms_found"]:
-                    if key in result:
-                        state[key] = result[key]
-
-                for event in result.get("ui_events", []):
-                    action = event["action"]
-                    # UIAction inherits from str but str() gives "UIAction.NAME",
-                    # so use .value to get the raw string like "fast_subtitle"
-                    if hasattr(action, "value"):
-                        action = action.value
-                    yield {
-                        "event": action,
-                        "data": json.dumps(event["data"], ensure_ascii=False),
-                    }
+            # 누적된 UI 이벤트 전송
+            for event in result.get("ui_events", []):
+                action = event["action"]
+                if hasattr(action, "value"):
+                    action = action.value
+                yield {
+                    "event": action,
+                    "data": json.dumps(event["data"], ensure_ascii=False),
+                }
 
         except Exception as e:
-            logger.error(f"Stream error: {e}")
+            logger.error(f"Stream error: {e}", exc_info=True)
             yield {
                 "event": "error",
                 "data": json.dumps({"message": str(e)}),
             }
         finally:
             _active_sessions.pop(session_id, None)
-            await source.close()
+            # 세션 저장
             try:
-                export = {
-                    "transcript": state.get("full_transcript", []),
-                    "glossary": state.get("glossary_dict", {}),
-                    "summary": state.get("summary_points", []),
-                }
                 out_dir = Path("exports")
                 out_dir.mkdir(exist_ok=True)
                 out_path = out_dir / f"session-{int(time.time())}.json"
-                out_path.write_text(json.dumps(export, ensure_ascii=False, indent=2))
+                out_path.write_text(
+                    json.dumps(
+                        {
+                            "url": url,
+                            "subtitles": state.get("raw_subtitles", []),
+                            "chunk_summaries": state.get("chunk_summaries", []),
+                            "final_summary": state.get("final_summary", ""),
+                            "insights": state.get("insights", ""),
+                        },
+                        ensure_ascii=False,
+                        indent=2,
+                    )
+                )
                 logger.info(f"Session exported to {out_path}")
             except Exception as export_err:
-                logger.error(f"Failed to export session: {export_err}")
+                logger.error(f"Failed to export: {export_err}")
 
     return EventSourceResponse(event_generator())
+
+
+@app.post("/api/summarize-now")
+async def summarize_now(url: str = Query(...)):
+    """라이브 스트리밍 수동 요약 트리거"""
+    _summarize_now_flags[url] = True
+    return {"status": "triggered"}
 
 
 @app.post("/api/stop")
 async def stop(url: str = Query(...)):
     _active_sessions[url] = False
     return {"status": "stopped"}
+
+
+@app.get("/api/export/markdown")
+async def export_markdown(url: str = Query(...)):
+    state = _session_states.get(url)
+    if not state:
+        return {"status": "error", "message": "No session found"}
+
+    lines = [
+        "# 영상 분석 노트",
+        "",
+        f"**URL:** {url}",
+        f"**분석일:** {time.strftime('%Y-%m-%d %H:%M:%S')}",
+        "",
+        "---",
+        "",
+    ]
+
+    final_summary = state.get("final_summary", "")
+    if final_summary:
+        lines.append("## 통합 요약")
+        lines.append("")
+        lines.append(final_summary)
+        lines.append("")
+        lines.append("---")
+        lines.append("")
+
+    insights = state.get("insights", "")
+    if insights:
+        lines.append(insights)
+        lines.append("")
+        lines.append("---")
+        lines.append("")
+
+    chunk_summaries = state.get("chunk_summaries", [])
+    if chunk_summaries:
+        lines.append("## 파트별 요약")
+        lines.append("")
+        for i, s in enumerate(chunk_summaries, 1):
+            lines.append(f"### 파트 {i}")
+            lines.append(s)
+            lines.append("")
+
+    return {"status": "ok", "markdown": "\n".join(lines)}
