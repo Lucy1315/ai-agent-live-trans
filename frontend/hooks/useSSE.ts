@@ -77,7 +77,7 @@ export function useSSE(url: string | null, key?: number) {
       const data = JSON.parse(e.data);
       setState((prev) => ({
         ...prev,
-        glossary: data.glossary,
+        glossary: { ...prev.glossary, ...data },
       }));
     });
 
@@ -85,7 +85,7 @@ export function useSSE(url: string | null, key?: number) {
       const data = JSON.parse(e.data);
       setState((prev) => ({
         ...prev,
-        insights: data.points,
+        insights: [...prev.insights, data.point],
       }));
     });
 

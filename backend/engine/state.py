@@ -1,40 +1,39 @@
 # engine/state.py
-import operator
-from typing import TypedDict, List, Dict, Annotated
+from typing import TypedDict, List, Dict
 from enum import Enum
 
 
 class UIAction(str, Enum):
-    SUBTITLES = "subtitles"
-    PROGRESS = "progress"
-    CHUNK_SUMMARY = "chunk_summary"
-    FINAL_SUMMARY = "final_summary"
-    INSIGHTS = "insights"
-    ERROR = "error"
-    COMPLETE = "complete"
+    UPDATE_FAST_SUBTITLE = "fast_translation"
+    UPDATE_REFINED_SUBTITLE = "refined_translation"
+    UPDATE_GLOSSARY = "glossary"
+    UPDATE_SUMMARY = "insights"
 
 
-class SubtitleAnalysisState(TypedDict):
-    # Input
-    url: str
-    is_live: bool
+class WebinarState(TypedDict):
+    # 입력
+    audio_source_url: str
+    audio_chunk: bytes
 
-    # Extracted subtitles
-    raw_subtitles: Annotated[List[Dict], operator.add]  # [{start, end, text}]
+    # STT 출력
+    current_chunk_text: str
+    is_sentence_end: bool
+    sentence_buffer: str
+    chunk_id: int
 
-    # Chunked data
-    chunks: Annotated[List[str], operator.add]
+    # Fast Track
+    fast_translation: str
 
-    # Summaries
-    chunk_summaries: Annotated[List[str], operator.add]
-    final_summary: str
-    insights: str
+    # Slow Track
+    refined_translation: str
+    refined_sentences: List[str]
+    new_terms_found: bool
 
-    # Accumulated data
+    # 누적 데이터
     full_transcript: List[str]
     glossary_dict: Dict[str, str]
     summary_points: List[str]
     last_summarized_idx: int
 
-    # UI event queue
+    # UI 이벤트 큐
     ui_events: List[Dict]

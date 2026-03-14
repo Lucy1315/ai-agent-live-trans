@@ -9,6 +9,8 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+import numpy as np
+from faster_whisper import WhisperModel
 from fastapi import FastAPI, Query
 from fastapi.middleware.cors import CORSMiddleware
 from sse_starlette.sse import EventSourceResponse
@@ -22,6 +24,9 @@ from sources.youtube import YouTubeSource
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+_model_name = os.getenv("WHISPER_MODEL", "base")
+whisper = WhisperModel(_model_name, device="cpu", compute_type="int8")
 
 app = FastAPI(title="Live-Trans API")
 
@@ -196,10 +201,9 @@ async def stream(url: str = Query(..., description="YouTube URL")):
                     json.dumps(
                         {
                             "url": url,
-                            "subtitles": state.get("raw_subtitles", []),
-                            "chunk_summaries": state.get("chunk_summaries", []),
-                            "final_summary": state.get("final_summary", ""),
-                            "insights": state.get("insights", ""),
+                            "transcript": state.get("full_transcript", []),
+                            "glossary": state.get("glossary_dict", {}),
+                            "summary": state.get("summary_points", []),
                         },
                         ensure_ascii=False,
                         indent=2,
@@ -210,6 +214,9 @@ async def stream(url: str = Query(..., description="YouTube URL")):
                 logger.error(f"Failed to export: {export_err}")
 
     return EventSourceResponse(event_generator())
+
+
+_summarize_now_flags: dict[str, bool] = {}
 
 
 @app.post("/api/summarize-now")
