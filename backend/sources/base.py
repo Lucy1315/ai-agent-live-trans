@@ -3,7 +3,7 @@ from typing import AsyncGenerator
 
 
 class AudioSource(ABC):
-    def __init__(self, chunk_duration: float = 2.0, overlap: float = 0.5,
+    def __init__(self, chunk_duration: float = 5.0, overlap: float = 1.0,
                  sample_rate: int = 16000):
         self.chunk_duration = chunk_duration
         self.overlap = overlap

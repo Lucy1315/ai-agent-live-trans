@@ -1,4 +1,5 @@
 # engine/graph.py
+from concurrent.futures import ThreadPoolExecutor
 from langgraph.graph import StateGraph, END
 from engine.state import WebinarState
 from engine.nodes.stt_node import stt_node
@@ -8,10 +9,13 @@ from engine.nodes.insight_extractor import insight_extractor
 
 
 def both_tracks(state: WebinarState):
-    """Run fast_translator then context_refiner sequentially for complete sentences."""
-    result = fast_translator(state)
-    merged = {**state, **result}
-    refiner_result = context_refiner(merged)
+    """Run fast_translator and context_refiner in PARALLEL for speed."""
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        fast_future = pool.submit(fast_translator, state)
+        refiner_future = pool.submit(context_refiner, state)
+        result = fast_future.result()
+        refiner_result = refiner_future.result()
+
     combined_events = result.get("ui_events", []) + refiner_result.get("ui_events", [])
     return {**refiner_result, "fast_translation": result["fast_translation"],
             "ui_events": combined_events}

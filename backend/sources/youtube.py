@@ -1,7 +1,15 @@
 import asyncio
+import shutil
 import subprocess
+import sys
+from pathlib import Path
 from typing import AsyncGenerator
 from sources.base import AudioSource
+
+
+def _resolve_bin(name: str) -> str:
+    """Resolve binary path, falling back to the venv's bin directory."""
+    return shutil.which(name) or str(Path(sys.executable).parent / name)
 
 
 class YouTubeSource(AudioSource):
@@ -9,7 +17,8 @@ class YouTubeSource(AudioSource):
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        self._process = None
+        self._yt_proc = None
+        self._ff_proc = None
 
     async def stream_chunks(self, url: str) -> AsyncGenerator[bytes, None]:
         chunk_samples = int(self.chunk_duration * self.sample_rate)
@@ -17,32 +26,38 @@ class YouTubeSource(AudioSource):
         step_samples = chunk_samples - overlap_samples
 
         cmd = [
-            "yt-dlp", "-f", "bestaudio", "-o", "-", url,
+            _resolve_bin("yt-dlp"), "-f", "bestaudio", "-o", "-", url,
             "--quiet", "--no-warnings",
         ]
         ffmpeg_cmd = [
-            "ffmpeg", "-i", "pipe:0",
+            _resolve_bin("ffmpeg"), "-i", "pipe:0",
             "-f", "s16le", "-acodec", "pcm_s16le",
             "-ar", str(self.sample_rate), "-ac", "1",
+            "-loglevel", "error",
             "pipe:1",
         ]
 
-        yt_proc = await asyncio.create_subprocess_exec(
-            *cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL
+        # Use subprocess.Popen for native pipe chaining (yt-dlp | ffmpeg)
+        self._yt_proc = subprocess.Popen(
+            cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL
         )
-        ff_proc = await asyncio.create_subprocess_exec(
-            *ffmpeg_cmd, stdin=yt_proc.stdout,
+        self._ff_proc = subprocess.Popen(
+            ffmpeg_cmd, stdin=self._yt_proc.stdout,
             stdout=subprocess.PIPE, stderr=subprocess.DEVNULL
         )
-        self._process = (yt_proc, ff_proc)
+        # Allow yt_proc to receive SIGPIPE if ff_proc exits
+        self._yt_proc.stdout.close()
 
+        loop = asyncio.get_event_loop()
         buffer = b""
         bytes_per_chunk = chunk_samples * 2  # int16 = 2 bytes
         bytes_per_step = step_samples * 2
 
         try:
             while True:
-                data = await ff_proc.stdout.read(4096)
+                data = await loop.run_in_executor(
+                    None, self._ff_proc.stdout.read, 4096
+                )
                 if not data:
                     break
                 buffer += data
@@ -56,10 +71,12 @@ class YouTubeSource(AudioSource):
             yield buffer
 
     async def close(self):
-        if self._process:
-            for proc in self._process:
+        for proc in (self._ff_proc, self._yt_proc):
+            if proc and proc.poll() is None:
                 try:
                     proc.kill()
-                except ProcessLookupError:
+                    proc.wait()
+                except (ProcessLookupError, OSError):
                     pass
-            self._process = None
+        self._yt_proc = None
+        self._ff_proc = None

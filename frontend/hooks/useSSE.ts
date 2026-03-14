@@ -11,9 +11,10 @@ interface SSEState {
   insights: string[];
   isConnected: boolean;
   error: string | null;
+  firstSubtitleAt: number | null;
 }
 
-export function useSSE(url: string | null) {
+export function useSSE(url: string | null, key?: number) {
   const [state, setState] = useState<SSEState>({
     subtitle: "",
     isRefined: false,
@@ -22,6 +23,7 @@ export function useSSE(url: string | null) {
     insights: [],
     isConnected: false,
     error: null,
+    firstSubtitleAt: null,
   });
 
   const sourceRef = useRef<EventSource | null>(null);
@@ -40,8 +42,9 @@ export function useSSE(url: string | null) {
       return;
     }
 
+    const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000";
     const source = new EventSource(
-      `/api/stream?url=${encodeURIComponent(url)}`
+      `${backendUrl}/api/stream?url=${encodeURIComponent(url)}`
     );
     sourceRef.current = source;
 
@@ -56,6 +59,7 @@ export function useSSE(url: string | null) {
         subtitle: data.text,
         isRefined: false,
         chunkId: data.chunk_id,
+        firstSubtitleAt: prev.firstSubtitleAt ?? Date.now(),
       }));
     });
 
@@ -99,7 +103,7 @@ export function useSSE(url: string | null) {
     return () => {
       source.close();
     };
-  }, [url, disconnect]);
+  }, [url, key, disconnect]);
 
   return { ...state, disconnect };
 }

@@ -1,8 +1,10 @@
 __pycache__/
 *.pyc
 venv/
+.venv/
 .env
 node_modules/
 .next/
 *.egg-info/
 dist/
+exports/

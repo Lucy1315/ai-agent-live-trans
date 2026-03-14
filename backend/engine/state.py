@@ -32,6 +32,7 @@ class WebinarState(TypedDict):
     full_transcript: List[str]
     glossary_dict: Dict[str, str]
     summary_points: List[str]
+    last_summarized_idx: int
 
     # UI event queue
     ui_events: List[Dict]
