@@ -2,8 +2,8 @@
 import asyncio
 import json
 import logging
-import time
 import os
+import time
 from pathlib import Path
 from dotenv import load_dotenv
 
@@ -20,13 +20,14 @@ from engine.nodes.insight_extractor import insight_extractor
 from engine.state import WebinarState
 from sources.youtube import YouTubeSource
 
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Live-Trans API")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=["*"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -53,13 +54,11 @@ async def health():
 
 
 @app.get("/api/stream")
-async def stream(url: str = Query(..., description="Audio source URL")):
+async def stream(url: str = Query(..., description="YouTube URL")):
     session_id = url
 
     async def event_generator():
         _active_sessions[session_id] = True
-        source = YouTubeSource()
-        chunk_id = 0
 
         state: WebinarState = {
             "audio_source_url": url,
@@ -114,10 +113,8 @@ async def stream(url: str = Query(..., description="Audio source URL")):
                 logger.error(f"Background processing error: {e}")
 
         try:
-            from faster_whisper import WhisperModel
-            import numpy as np
-            model_name = os.getenv("WHISPER_MODEL", "base")
-            whisper = WhisperModel(model_name, device="cpu", compute_type="int8")
+            source = YouTubeSource()
+            chunk_id = 0
 
             step_duration = source.chunk_duration - source.overlap  # 5 - 1 = 4s
             stream_start = None  # set on first chunk
@@ -178,7 +175,7 @@ async def stream(url: str = Query(..., description="Audio source URL")):
                     asyncio.create_task(_run_background(state_snapshot))
 
         except Exception as e:
-            logger.error(f"Stream error: {e}")
+            logger.error(f"Stream error: {e}", exc_info=True)
             yield {
                 "event": "error",
                 "data": json.dumps({"message": str(e)}),
@@ -192,20 +189,33 @@ async def stream(url: str = Query(..., description="Audio source URL")):
                 yield bg_queue.get_nowait()
 
             try:
-                export = {
-                    "transcript": state.get("full_transcript", []),
-                    "glossary": state.get("glossary_dict", {}),
-                    "summary": state.get("summary_points", []),
-                }
                 out_dir = Path("exports")
                 out_dir.mkdir(exist_ok=True)
                 out_path = out_dir / f"session-{int(time.time())}.json"
-                out_path.write_text(json.dumps(export, ensure_ascii=False, indent=2))
+                out_path.write_text(
+                    json.dumps(
+                        {
+                            "url": url,
+                            "subtitles": state.get("raw_subtitles", []),
+                            "chunk_summaries": state.get("chunk_summaries", []),
+                            "final_summary": state.get("final_summary", ""),
+                            "insights": state.get("insights", ""),
+                        },
+                        ensure_ascii=False,
+                        indent=2,
+                    )
+                )
                 logger.info(f"Session exported to {out_path}")
             except Exception as export_err:
-                logger.error(f"Failed to export session: {export_err}")
+                logger.error(f"Failed to export: {export_err}")
 
     return EventSourceResponse(event_generator())
+
+
+@app.post("/api/summarize-now")
+async def summarize_now(url: str = Query(...)):
+    _summarize_now_flags[url] = True
+    return {"status": "triggered"}
 
 
 @app.post("/api/stop")
@@ -216,7 +226,6 @@ async def stop(url: str = Query(...)):
 
 @app.post("/api/final-summary")
 async def final_summary(url: str = Query(...)):
-    """세션의 요약 포인트들을 기반으로 최종 인사이트 요약 생성"""
     state = _session_states.get(url)
     if not state:
         return {"status": "error", "message": "세션을 찾을 수 없습니다"}
@@ -258,7 +267,6 @@ async def final_summary(url: str = Query(...)):
 
 @app.get("/api/export/markdown")
 async def export_markdown(url: str = Query(...)):
-    """세션 데이터를 마크다운으로 내보내기"""
     state = _session_states.get(url)
     if not state:
         return {"status": "error", "message": "세션을 찾을 수 없습니다"}

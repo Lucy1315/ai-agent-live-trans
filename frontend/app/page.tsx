@@ -52,13 +52,14 @@ export default function Home() {
     setFinalSummary(null);
     setSessionKey((k) => k + 1);
     setActiveUrl(url);
-    // Unmute in the same click handler (user gesture) → browser allows audio
+    // Unmute in the same click handler (user gesture) so browser allows audio
     playerRef.current?.unmute();
   };
 
   const handleStop = async () => {
     if (activeUrl) {
-      await fetch(`/api/stop?url=${encodeURIComponent(activeUrl)}`, {
+      const backendUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+      await fetch(`${backendUrl}/api/stop?url=${encodeURIComponent(activeUrl)}`, {
         method: "POST",
       });
     }
@@ -112,7 +113,8 @@ export default function Home() {
           <SubtitleDisplay text={subtitle} isRefined={isRefined} size={subtitleSize} onSizeChange={setSubtitleSize} />
         </div>
 
-        <div className="w-80 flex flex-col gap-4">
+        {/* 분석 패널 */}
+        <div className="w-96 flex flex-col gap-4">
           <div className="flex-1 min-h-0">
             <GlossaryPanel glossary={glossary} />
           </div>
@@ -124,6 +126,7 @@ export default function Home() {
 
       <ControlBar
         isConnected={isConnected}
+        isComplete={false}
         onStop={handleStop}
         onGenerateFinalSummary={handleGenerateFinalSummary}
         glossary={glossary}

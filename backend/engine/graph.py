@@ -43,27 +43,15 @@ def build_graph():
     graph.add_node("insight_extractor", insight_extractor)
 
     graph.set_entry_point("stt_node")
-
-    graph.add_conditional_edges(
-        "stt_node",
-        route_after_stt,
-        {
-            "fast_translator": "fast_translator",
-            "both_tracks": "both_tracks",
-        },
-    )
-
+    graph.add_conditional_edges("stt_node", route_after_stt, {
+        "both_tracks": "both_tracks",
+        "fast_translator": "fast_translator",
+    })
     graph.add_edge("fast_translator", END)
-
-    graph.add_conditional_edges(
-        "both_tracks",
-        route_after_refiner,
-        {
-            "insight_extractor": "insight_extractor",
-            END: END,
-        },
-    )
-
+    graph.add_conditional_edges("both_tracks", route_after_refiner, {
+        "insight_extractor": "insight_extractor",
+        END: END,
+    })
     graph.add_edge("insight_extractor", END)
 
     return graph.compile()

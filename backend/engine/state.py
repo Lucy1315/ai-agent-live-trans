@@ -1,32 +1,34 @@
-from typing import TypedDict, List, Dict
+# engine/state.py
+import operator
+from typing import TypedDict, List, Dict, Annotated
 from enum import Enum
 
 
 class UIAction(str, Enum):
-    UPDATE_FAST_SUBTITLE = "fast_subtitle"
-    UPDATE_REFINED_SUBTITLE = "refined_subtitle"
-    UPDATE_GLOSSARY = "glossary"
-    UPDATE_SUMMARY = "summary"
+    SUBTITLES = "subtitles"
+    PROGRESS = "progress"
+    CHUNK_SUMMARY = "chunk_summary"
+    FINAL_SUMMARY = "final_summary"
+    INSIGHTS = "insights"
+    ERROR = "error"
+    COMPLETE = "complete"
 
 
-class WebinarState(TypedDict):
+class SubtitleAnalysisState(TypedDict):
     # Input
-    audio_source_url: str
-    audio_chunk: bytes
+    url: str
+    is_live: bool
 
-    # STT output
-    current_chunk_text: str
-    is_sentence_end: bool
-    sentence_buffer: str
-    chunk_id: int
+    # Extracted subtitles
+    raw_subtitles: Annotated[List[Dict], operator.add]  # [{start, end, text}]
 
-    # Fast Track
-    fast_translation: str
+    # Chunked data
+    chunks: Annotated[List[str], operator.add]
 
-    # Slow Track
-    refined_translation: str
-    refined_sentences: List[str]
-    new_terms_found: bool
+    # Summaries
+    chunk_summaries: Annotated[List[str], operator.add]
+    final_summary: str
+    insights: str
 
     # Accumulated data
     full_transcript: List[str]

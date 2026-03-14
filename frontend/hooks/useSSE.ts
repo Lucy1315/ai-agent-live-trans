@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import type { SubtitleEvent, GlossaryEvent, SummaryEvent } from "@/lib/types";
 
 interface SSEState {
   subtitle: string;
@@ -10,6 +9,7 @@ interface SSEState {
   glossary: Record<string, string>;
   insights: string[];
   isConnected: boolean;
+  isComplete: boolean;
   error: string | null;
   firstSubtitleAt: number | null;
 }
@@ -22,6 +22,7 @@ export function useSSE(url: string | null, key?: number) {
     glossary: {},
     insights: [],
     isConnected: false,
+    isComplete: false,
     error: null,
     firstSubtitleAt: null,
   });
@@ -52,8 +53,8 @@ export function useSSE(url: string | null, key?: number) {
       setState((prev) => ({ ...prev, isConnected: true, error: null }));
     };
 
-    source.addEventListener("fast_subtitle", (e) => {
-      const data: SubtitleEvent = JSON.parse(e.data);
+    source.addEventListener("fast_translation", (e) => {
+      const data = JSON.parse(e.data);
       setState((prev) => ({
         ...prev,
         subtitle: data.text,
@@ -63,30 +64,34 @@ export function useSSE(url: string | null, key?: number) {
       }));
     });
 
-    source.addEventListener("refined_subtitle", (e) => {
-      const data: SubtitleEvent = JSON.parse(e.data);
+    source.addEventListener("refined_translation", (e) => {
+      const data = JSON.parse(e.data);
       setState((prev) => ({
         ...prev,
         subtitle: data.text,
         isRefined: true,
-        chunkId: data.chunk_id,
       }));
     });
 
     source.addEventListener("glossary", (e) => {
-      const data: GlossaryEvent = JSON.parse(e.data);
+      const data = JSON.parse(e.data);
       setState((prev) => ({
         ...prev,
-        glossary: { ...prev.glossary, ...data },
+        glossary: data.glossary,
       }));
     });
 
-    source.addEventListener("summary", (e) => {
-      const data: SummaryEvent = JSON.parse(e.data);
+    source.addEventListener("insights", (e) => {
+      const data = JSON.parse(e.data);
       setState((prev) => ({
         ...prev,
-        insights: [...prev.insights, data.point],
+        insights: data.points,
       }));
+    });
+
+    source.addEventListener("complete", () => {
+      setState((prev) => ({ ...prev, isComplete: true, isConnected: false }));
+      source.close();
     });
 
     source.addEventListener("error", (e) => {

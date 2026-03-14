@@ -2,6 +2,7 @@
 
 interface Props {
   isConnected: boolean;
+  isComplete: boolean;
   onStop: () => void;
   onGenerateFinalSummary: () => void;
   glossary: Record<string, string>;
@@ -17,6 +18,7 @@ interface Props {
 
 export default function ControlBar({
   isConnected,
+  isComplete,
   onStop,
   onGenerateFinalSummary,
   glossary,
@@ -120,7 +122,7 @@ export default function ControlBar({
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `live-trans-export-${Date.now()}.json`;
+    a.download = `analysis-${Date.now()}.json`;
     a.click();
     URL.revokeObjectURL(url);
   };
@@ -131,10 +133,12 @@ export default function ControlBar({
     <div className="flex items-center justify-between px-4 py-3 bg-gray-800 rounded-lg">
       <div className="flex items-center gap-2">
         <div
-          className={`w-2 h-2 rounded-full ${isConnected ? "bg-green-400" : "bg-gray-500"}`}
+          className={`w-2 h-2 rounded-full ${
+            isConnected ? "bg-green-400 animate-pulse" : isComplete ? "bg-blue-400" : "bg-gray-500"
+          }`}
         />
         <span className="text-sm text-gray-400">
-          {isConnected ? "실시간 수신 중" : "대기 중"}
+          {isConnected ? "분석 중" : isComplete ? "분석 완료" : "대기 중"}
         </span>
       </div>
       <div className="flex gap-2">
