@@ -22,7 +22,6 @@ export default function Home() {
   const [activeUrl, setActiveUrl] = useState<string | null>(null);
 
   const {
-    subtitles,
     chunkSummaries,
     finalSummary,
     insights,
