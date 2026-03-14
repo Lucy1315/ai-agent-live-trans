@@ -1,65 +1,27 @@
 # engine/graph.py
 from langgraph.graph import StateGraph, END
-from engine.state import WebinarState
-from engine.nodes.stt_node import stt_node
-from engine.nodes.fast_translator import fast_translator
-from engine.nodes.context_refiner import context_refiner
-from engine.nodes.insight_extractor import insight_extractor
-
-
-def both_tracks(state: WebinarState):
-    """Run fast_translator then context_refiner sequentially for complete sentences."""
-    result = fast_translator(state)
-    merged = {**state, **result}
-    refiner_result = context_refiner(merged)
-    combined_events = result.get("ui_events", []) + refiner_result.get("ui_events", [])
-    return {**refiner_result, "fast_translation": result["fast_translation"],
-            "ui_events": combined_events}
-
-
-def route_after_stt(state: WebinarState) -> str:
-    if state.get("is_sentence_end"):
-        return "both_tracks"
-    return "fast_translator"
-
-
-def route_after_refiner(state: WebinarState) -> str:
-    refined = state.get("refined_sentences", [])
-    if len(refined) > 0 and len(refined) % 5 == 0:
-        return "insight_extractor"
-    return END
+from engine.state import SubtitleAnalysisState
+from engine.nodes.subtitle_extractor import subtitle_extractor_node
+from engine.nodes.chunk_splitter import chunk_splitter_node
+from engine.nodes.chunk_summarizer import chunk_summarizer_node
+from engine.nodes.final_summarizer import final_summarizer_node
+from engine.nodes.insight_generator import insight_generator_node
 
 
 def build_graph():
-    graph = StateGraph(WebinarState)
+    graph = StateGraph(SubtitleAnalysisState)
 
-    graph.add_node("stt_node", stt_node)
-    graph.add_node("fast_translator", fast_translator)
-    graph.add_node("both_tracks", both_tracks)
-    graph.add_node("insight_extractor", insight_extractor)
+    graph.add_node("subtitle_extractor", subtitle_extractor_node)
+    graph.add_node("chunk_splitter", chunk_splitter_node)
+    graph.add_node("chunk_summarizer", chunk_summarizer_node)
+    graph.add_node("final_summarizer", final_summarizer_node)
+    graph.add_node("insight_generator", insight_generator_node)
 
-    graph.set_entry_point("stt_node")
-
-    graph.add_conditional_edges(
-        "stt_node",
-        route_after_stt,
-        {
-            "fast_translator": "fast_translator",
-            "both_tracks": "both_tracks",
-        },
-    )
-
-    graph.add_edge("fast_translator", END)
-
-    graph.add_conditional_edges(
-        "both_tracks",
-        route_after_refiner,
-        {
-            "insight_extractor": "insight_extractor",
-            END: END,
-        },
-    )
-
-    graph.add_edge("insight_extractor", END)
+    graph.set_entry_point("subtitle_extractor")
+    graph.add_edge("subtitle_extractor", "chunk_splitter")
+    graph.add_edge("chunk_splitter", "chunk_summarizer")
+    graph.add_edge("chunk_summarizer", "final_summarizer")
+    graph.add_edge("final_summarizer", "insight_generator")
+    graph.add_edge("insight_generator", END)
 
     return graph.compile()
